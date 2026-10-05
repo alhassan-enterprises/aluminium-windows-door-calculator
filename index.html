@@ -520,6 +520,10 @@
 
         "AA-23 2.0mm": { "Dull/Silver": 921, "Champagne/PC": 923, "Sahara/Brown": 988, "Multi/Black": 1034, "Wood Coat": 1154 },
 
+        "Pipe 1*3 1.2mm": { "Dull/Silver": 452, "Champagne/PC": 454, "Sahara/Brown": 486, "Multi/Black": 508, "Wood Coat": 568 },
+        "Pipe 1.5*3 1.2mm": { "Dull/Silver": 520, "Champagne/PC": 522, "Sahara/Brown": 559, "Multi/Black": 585, "Wood Coat": 653 },
+        "Uper 1.2mm": { "Dull/Silver": 168, "Champagne/PC": 169, "Sahara/Brown": 181, "Multi/Black": 189, "Wood Coat": 211 },
+
         "D-54F 1.2mm": { "Dull/Silver": 484, "Champagne/PC": 486, "Sahara/Brown": 520, "Multi/Black": 544, "Wood Coat": 608 },
         "D-54F 1.6mm": { "Dull/Silver": 580, "Champagne/PC": 582, "Sahara/Brown": 623, "Multi/Black": 652, "Wood Coat": 728 },
         "D-54F 2.0mm": { "Dull/Silver": 700, "Champagne/PC": 702, "Sahara/Brown": 751, "Multi/Black": 786, "Wood Coat": 878 },
@@ -631,7 +635,7 @@
 
       const [input, setInput] = useState({
         type: 'Sliding', palla: '2', panelQty: '1', thickness: '1.2mm*75mm', w: '', h: '', qty: '', 
-        doorStyle: 'Standard', doorFrame: 'D-54F', doorPalla: 'D-50A', doorMidRail: 'D-52', doorBottomRail: 'D-46',
+        doorStyle: 'Standard', pipeSize: '1*3', doorFrame: 'D-54F', doorPalla: 'D-50A', doorMidRail: 'D-52', doorBottomRail: 'D-46',
         fixedFrame: 'D-54F', openableFrame: 'D-54F', openablePalla: 'D-50A',
         dgFrame: 'DG-26 F', dgPalla: 'DG-23',
         dividerWQty: '', dividerHQty: '', dividerType: 'M-24A',
@@ -653,6 +657,14 @@
         if (rateList[`${baseSec} 1.2mm`]) return { section: `${baseSec} (1.2mm)`, rate: rateList[`${baseSec} 1.2mm`][input.colorCategory] || 0 };
         if (rateList[`${baseSec} 4mm`]) return { section: `${baseSec} (4mm)`, rate: rateList[`${baseSec} 4mm`][input.colorCategory] || 0 };
         return { section: baseSec, rate: 0 };
+      };
+
+      const isSpecialDoorStyle = (ds) => ds === 'AA23' || ds === 'Pipe';
+      const doorDisplayType = (item) => {
+        if (item.type !== 'Door') return item.type;
+        if (item.doorStyle === 'AA23') return 'AA-23 Door';
+        if (item.doorStyle === 'Pipe') return 'Pipe Palla Door';
+        return 'Door';
       };
 
       const handleAddItem = () => {
@@ -735,7 +747,20 @@
                 if (input.dividerType === 'D-40' || input.dividerType === 'D-59' || input.dividerType === 'D-59A') materials.push({ ...fetchRate('D-41', thick), ft: (totalDividerFt * 2) * q }); 
               }
             } else if (input.type === 'Door') {
-              if (input.doorStyle === 'AA23') {
+              if (input.doorStyle === 'Pipe') {
+                // Pipe Palla Door: 1x3 / 1.5x3 pipe frame + pipe divider; Uper = total pipe footage
+                const pipeThick = '1.2mm';
+                const pipeSec = input.pipeSize === '1.5*3' ? 'Pipe 1.5*3' : 'Pipe 1*3';
+                const pipeFrameFt = ((w * 2) + (h * 2)) * q;
+                const pipeDivFt = totalDividerFt * q;
+                materials = [
+                  { ...fetchRate(pipeSec, pipeThick), ft: pipeFrameFt }
+                ];
+                if (totalDividerFt > 0) {
+                  materials.push({ ...fetchRate(pipeSec, pipeThick), ft: pipeDivFt });
+                }
+                materials.push({ ...fetchRate('Uper', pipeThick), ft: pipeFrameFt + pipeDivFt });
+              } else if (input.doorStyle === 'AA23') {
                 // AA-23 Palla Door: palla fits on existing (iron) chokhat - no outer aluminium frame
                 const aaThick = '2.0mm';
                 materials = [
@@ -907,8 +932,8 @@
         txt += `*Total Units:* ${totals.totalQty}\n`;
         txt += `*Total Area:* ${totals.totalSqft.toFixed(2)} Sq.Ft\n\n`;
         items.forEach((item, i) => {
-          const dispType = (item.type === 'Door' && item.doorStyle === 'AA23') ? 'AA-23 Door' : item.type;
-          let pallaText = ((item.type === 'Door' || item.type === 'Openable') && !(item.type === 'Door' && item.doorStyle === 'AA23'))
+          const dispType = doorDisplayType(item);
+          let pallaText = ((item.type === 'Door' || item.type === 'Openable') && !(item.type === 'Door' && isSpecialDoorStyle(item.doorStyle)))
              ? ` (${item.panelQty === '2' ? 'Double Palla' : 'Single Palla'})` 
              : '';
           let archText = (item.hasArch && item.ah > 0) ? ` + Arch(${item.ah}ft)` : '';
@@ -935,7 +960,7 @@
               <div className="no-print">
 
                 <div className="mb-6 rounded-3xl overflow-hidden shadow-[0_15px_40px_-10px_rgba(0,0,0,0.15)] border border-slate-200 bg-white">
-                  <Visualizer {...input} type={activeTab === 'dg' ? 'Sliding' : ((input.type === 'Door' && input.doorStyle === 'AA23') ? 'Openable' : input.type)} />
+                  <Visualizer {...input} type={activeTab === 'dg' ? 'Sliding' : ((input.type === 'Door' && isSpecialDoorStyle(input.doorStyle)) ? 'Openable' : input.type)} />
                   
                   <div className="p-4 bg-white border-t border-slate-200">
                     <div className="flex justify-between items-center mb-3">
@@ -986,7 +1011,7 @@
                 <div className="bg-white rounded-3xl p-6 shadow-xl shadow-slate-200/50 mb-6 border border-slate-100 relative overflow-hidden">
                   
                   {/* ARCH SETTINGS CARD */}
-                  {activeTab !== 'dg' && !(input.type === 'Door' && input.doorStyle === 'AA23') && (
+                  {activeTab !== 'dg' && !(input.type === 'Door' && (input.doorStyle === 'AA23' || input.doorStyle === 'Pipe')) && (
                     <div className="bg-sky-50 border border-sky-100 rounded-2xl p-4 mb-5 shadow-sm">
                       <div className="flex justify-between items-center mb-3">
                         <h4 className="text-xs font-black text-sky-800 uppercase tracking-wider">Top Arch (Golai)</h4>
@@ -1070,9 +1095,26 @@
                         <label className={`flex-1 text-center py-2 rounded-lg cursor-pointer text-sm font-bold transition-all ${input.doorStyle === 'AA23' ? 'bg-white shadow-sm text-slate-800' : 'text-slate-500 hover:text-slate-700'} `}>
                           <input type="radio" checked={input.doorStyle === 'AA23'} onChange={() => setInput({...input, doorStyle:'AA23', dividerType:'M-24A', panelQty:'1', hasArch:false})} className="hidden" /> AA-23 Palla Door
                         </label>
+                        <label className={`flex-1 text-center py-2 rounded-lg cursor-pointer text-sm font-bold transition-all ${input.doorStyle === 'Pipe' ? 'bg-white shadow-sm text-slate-800' : 'text-slate-500 hover:text-slate-700'} `}>
+                          <input type="radio" checked={input.doorStyle === 'Pipe'} onChange={() => setInput({...input, doorStyle:'Pipe', panelQty:'1', hasArch:false})} className="hidden" /> Pipe Palla Door
+                        </label>
                       </div>
                       {input.doorStyle === 'AA23' && (
                         <p className="text-[10px] text-slate-500 font-medium mt-2 ml-1">AA-23 palla lohay ki chokhat par lagta hai — 2.0mm fixed. Divider: M-24A / M-24F.</p>
+                      )}
+                      {input.doorStyle === 'Pipe' && (
+                        <div className="mt-3">
+                          <label className="block text-xs font-bold text-slate-500 uppercase mb-2 ml-1">Pipe Size</label>
+                          <div className="flex bg-slate-100 p-1.5 rounded-xl">
+                            <label className={`flex-1 text-center py-2 rounded-lg cursor-pointer text-sm font-bold transition-all ${input.pipeSize === '1*3' ? 'bg-white shadow-sm text-slate-800' : 'text-slate-500 hover:text-slate-700'} `}>
+                              <input type="radio" checked={input.pipeSize === '1*3'} onChange={() => setInput({...input, pipeSize:'1*3'})} className="hidden" /> 1 x 3 Pipe
+                            </label>
+                            <label className={`flex-1 text-center py-2 rounded-lg cursor-pointer text-sm font-bold transition-all ${input.pipeSize === '1.5*3' ? 'bg-white shadow-sm text-slate-800' : 'text-slate-500 hover:text-slate-700'} `}>
+                              <input type="radio" checked={input.pipeSize === '1.5*3'} onChange={() => setInput({...input, pipeSize:'1.5*3'})} className="hidden" /> 1.5 x 3 Pipe
+                            </label>
+                          </div>
+                          <p className="text-[10px] text-slate-500 font-medium mt-2 ml-1">Pipe palla: frame + divider me pipe hi use hota hai; Uper pipe jitna hi lagta hai.</p>
+                        </div>
                       )}
                     </div>
                   )}
@@ -1083,7 +1125,7 @@
                   {activeTab === 'dc' && input.type === 'Openable' && (
                     <div className="grid grid-cols-2 gap-3 mb-5"><div><label className="block text-xs font-bold text-slate-500 uppercase mb-1.5 ml-1">Frame</label><div className="relative"><select value={input.openableFrame} onChange={e => setInput({...input, openableFrame: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-slate-800 font-bold focus:outline-none focus:ring-2 focus:ring-teal-50 appearance-none"><option value="D-54F">D-54F</option><option value="D-51F">D-51F</option><option value="D-42F">D-42F</option><option value="D-54A">D-54A</option><option value="D-51A">D-51A</option><option value="D-42">D-42</option></select><div className="absolute right-3 top-3.5 text-slate-400 pointer-events-none"><IconChevronDown /></div></div></div><div><label className="block text-xs font-bold text-slate-500 uppercase mb-1.5 ml-1">Palla</label><div className="relative"><select value={input.openablePalla} onChange={e => setInput({...input, openablePalla: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-slate-800 font-bold focus:outline-none focus:ring-2 focus:ring-teal-50 appearance-none"><option value="D-50A">D-50A</option><option value="D-50">D-50</option><option value="D-50B">D-50B</option></select><div className="absolute right-3 top-3.5 text-slate-400 pointer-events-none"><IconChevronDown /></div></div></div></div>
                   )}
-                  {activeTab === 'dc' && input.type === 'Door' && input.doorStyle !== 'AA23' && (
+                  {activeTab === 'dc' && input.type === 'Door' && input.doorStyle !== 'AA23' && input.doorStyle !== 'Pipe' && (
                     <div className="grid grid-cols-2 gap-3 mb-5">
                       <div><label className="block text-xs font-bold text-slate-500 uppercase mb-1.5 ml-1">Frame</label><div className="relative"><select value={input.doorFrame} onChange={e => setInput({...input, doorFrame: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-slate-800 font-bold focus:outline-none focus:ring-2 focus:ring-teal-50 appearance-none"><option value="D-54F">D-54F</option><option value="D-51F">D-51F</option><option value="D-54A">D-54A</option><option value="D-51A">D-51A</option></select><div className="absolute right-3 top-3.5 text-slate-400 pointer-events-none"><IconChevronDown /></div></div></div>
                       <div><label className="block text-xs font-bold text-slate-500 uppercase mb-1.5 ml-1">Palla</label><div className="relative"><select value={input.doorPalla} onChange={e => setInput({...input, doorPalla: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-slate-800 font-bold focus:outline-none focus:ring-2 focus:ring-teal-50 appearance-none"><option value="D-50A">D-50A</option><option value="D-50">D-50</option><option value="D-50B">D-50B</option></select><div className="absolute right-3 top-3.5 text-slate-400 pointer-events-none"><IconChevronDown /></div></div></div>
@@ -1123,7 +1165,7 @@
                     <div className="mb-5"><label className="block text-xs font-bold text-slate-500 uppercase mb-2 ml-1">Track Quantity</label><div className="flex bg-slate-100 p-1.5 rounded-xl w-full"><label className={`flex-1 text-center py-2 rounded-lg cursor-pointer text-sm font-bold transition-all ${input.palla === '2' ? 'bg-white shadow-sm text-slate-800' : 'text-slate-500 hover:text-slate-700'} `}><input type="radio" checked={input.palla === '2'} onChange={() => setInput({...input, palla:'2'})} className="hidden" /> 2 Track</label>{activeTab === 'dc' && (<><label className={`flex-1 text-center py-2 rounded-lg cursor-pointer text-sm font-bold transition-all ${input.palla === '3' ? 'bg-white shadow-sm text-slate-800' : 'text-slate-500 hover:text-slate-700'} `}><input type="radio" checked={input.palla === '3'} onChange={() => setInput({...input, palla:'3'})} className="hidden" /> 3 Track</label><label className={`flex-1 text-center py-2 rounded-lg cursor-pointer text-sm font-bold transition-all ${input.palla === '4' ? 'bg-white shadow-sm text-slate-800' : 'text-slate-500 hover:text-slate-700'} `}><input type="radio" checked={input.palla === '4'} onChange={() => setInput({...input, palla:'4'})} className="hidden" /> 4 Track</label></>)}</div></div>
                   )}
 
-                  {(input.type === 'Openable' || (input.type === 'Door' && input.doorStyle !== 'AA23')) && (
+                  {(input.type === 'Openable' || (input.type === 'Door' && input.doorStyle !== 'AA23' && input.doorStyle !== 'Pipe')) && (
                     <div className="mb-5">
                       <label className="block text-xs font-bold text-slate-500 uppercase mb-2 ml-1">Palla / Panel Quantity</label>
                       <div className="flex bg-slate-100 p-1.5 rounded-xl">
@@ -1158,7 +1200,7 @@
                     </div>
                   </div>
 
-                  {!(input.type === 'Door' && input.doorStyle === 'AA23') && (
+                  {!(input.type === 'Door' && (input.doorStyle === 'AA23' || input.doorStyle === 'Pipe')) && (
                   <div className="mb-6">
                     <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5 ml-1">Thickness & Section</label>
                     <div className="relative">
@@ -1187,6 +1229,7 @@
                         <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Vert. (H)</label>
                         <input type="number" value={input.dividerHQty} onChange={e => setInput({...input, dividerHQty: e.target.value})} placeholder="Qty" className="w-full bg-white border border-slate-200 rounded-lg p-2.5 text-sm font-bold text-slate-800 focus:ring-2 focus:ring-teal-500 outline-none" />
                       </div>
+                      {!(input.type === 'Door' && input.doorStyle === 'Pipe') && (
                       <div>
                         <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Type</label>
                         <div className="relative">
@@ -1204,6 +1247,7 @@
                           <div className="absolute right-2 top-3 text-slate-400 pointer-events-none"><IconChevronDown /></div>
                         </div>
                       </div>
+                      )}
                     </div>
                   </div>
 
@@ -1222,14 +1266,14 @@
                 {items.map((item) => (
                   <div key={item.id} className="bg-white border border-slate-100 rounded-2xl shadow-sm mb-4 overflow-hidden flex flex-row transition-all hover:shadow-md h-32">
                     <div className="w-1/3 border-r border-slate-100 relative p-1 overflow-hidden bg-slate-50 flex items-center justify-center">
-                      <Visualizer {...item} type={item.category === 'DG' ? 'Sliding' : ((item.type === 'Door' && item.doorStyle === 'AA23') ? 'Openable' : item.type)} mini={true} />
+                      <Visualizer {...item} type={item.category === 'DG' ? 'Sliding' : ((item.type === 'Door' && isSpecialDoorStyle(item.doorStyle)) ? 'Openable' : item.type)} mini={true} />
                     </div>
                     <div className="w-2/3 flex flex-col justify-between p-1">
                       <div className="px-3 py-1 flex justify-between items-start">
                         <div className="truncate">
                           <h3 className="font-bold text-slate-800 leading-tight text-sm truncate">
-                            {item.category} {(item.type === 'Door' && item.doorStyle === 'AA23') ? 'AA-23 Door' : item.type}
-                            {((item.type === 'Door' || item.type === 'Openable') && !(item.type === 'Door' && item.doorStyle === 'AA23')) && <span className="text-teal-600 text-[10px] ml-1">({item.panelQty === '2' ? 'Double' : 'Single'})</span>}
+                            {item.category} {doorDisplayType(item)}
+                            {((item.type === 'Door' || item.type === 'Openable') && !(item.type === 'Door' && isSpecialDoorStyle(item.doorStyle))) && <span className="text-teal-600 text-[10px] ml-1">({item.panelQty === '2' ? 'Double' : 'Single'})</span>}
                             {(item.hasArch && item.ah > 0) && <span className="text-sky-600 text-[10px] ml-1">+Arch</span>}
                           </h3>
                           <p className="text-[9px] text-slate-500 font-medium mt-0.5 truncate">
@@ -1473,12 +1517,12 @@
                 {items.map((item, idx) => (
                   <div key={idx} className="bg-white avoid-break border border-slate-200 rounded-xl p-3 flex gap-4 items-center h-48 overflow-hidden">
                     <div className="w-1/3 flex justify-center items-center h-full p-1 bg-blueprint rounded-lg overflow-hidden border border-slate-800">
-                       <Visualizer {...item} id={`${item.id}-print`} type={item.category === 'DG' ? 'Sliding' : ((item.type === 'Door' && item.doorStyle === 'AA23') ? 'Openable' : item.type)} mini={true} />
+                       <Visualizer {...item} id={`${item.id}-print`} type={item.category === 'DG' ? 'Sliding' : ((item.type === 'Door' && isSpecialDoorStyle(item.doorStyle)) ? 'Openable' : item.type)} mini={true} />
                     </div>
                     <div className="w-2/3 text-sm flex flex-col justify-center">
                        <h4 className="font-bold text-slate-900 text-base mb-1 leading-tight truncate">
-                         {item.category} {(item.type === 'Door' && item.doorStyle === 'AA23') ? 'AA-23 Door' : item.type}
-                         {((item.type === 'Door' || item.type === 'Openable') && !(item.type === 'Door' && item.doorStyle === 'AA23')) && <span className="text-teal-600 font-medium text-[11px] ml-1">({item.panelQty === '2' ? 'Double' : 'Single'})</span>}
+                         {item.category} {doorDisplayType(item)}
+                         {((item.type === 'Door' || item.type === 'Openable') && !(item.type === 'Door' && isSpecialDoorStyle(item.doorStyle))) && <span className="text-teal-600 font-medium text-[11px] ml-1">({item.panelQty === '2' ? 'Double' : 'Single'})</span>}
                          {(item.hasArch && item.ah > 0) && <span className="text-sky-600 text-[11px] font-bold ml-1">+Arch</span>}
                        </h4>
                        <p className="text-slate-600 mb-1 text-xs truncate">
