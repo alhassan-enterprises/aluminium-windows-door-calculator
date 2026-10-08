@@ -647,6 +647,62 @@
 
       const [items, setItems] = useState([]);
       const [billing, setBilling] = useState({ discountPct: '', glassRate: '', hardwareRate: '', laborRate: '', additional: '' });
+      const [savedBills, setSavedBills] = useState(() => {
+        try { return JSON.parse(localStorage.getItem('alumWinDoorBillsV1') || '[]'); } catch(e) { return []; }
+      });
+      const [billCustomer, setBillCustomer] = useState('');
+
+      const persistBills = (bills) => {
+        setSavedBills(bills);
+        try { localStorage.setItem('alumWinDoorBillsV1', JSON.stringify(bills)); } catch(e) {}
+      };
+      const billFingerprint = () => JSON.stringify(items) + '|' + Math.round(totals.grandTotal || 0);
+      const handleSaveBill = () => {
+        if (items.length === 0) { showToast("No items to save.", "error"); return; }
+        const bill = {
+          id: 'bill-' + Date.now(),
+          date: new Date().toLocaleDateString('en-GB'),
+          time: new Date().toLocaleTimeString('en-GB', {hour:'2-digit', minute:'2-digit'}),
+          customer: (billCustomer || '').trim() || 'Walk-in Customer',
+          items: items,
+          billing: billing,
+          grandTotal: Math.round(totals.grandTotal || 0),
+          totalSqft: parseFloat((totals.totalSqft || 0).toFixed(1)),
+          itemCount: items.length,
+          fingerprint: billFingerprint()
+        };
+        persistBills([bill, ...savedBills]);
+        setBillCustomer('');
+        showToast("Bill saved!", "success");
+      };
+      const autoSaveBill = () => {
+        if (items.length === 0) return;
+        const fp = billFingerprint();
+        if (savedBills.length > 0 && savedBills[0].fingerprint === fp) return;
+        const bill = {
+          id: 'bill-' + Date.now(),
+          date: new Date().toLocaleDateString('en-GB'),
+          time: new Date().toLocaleTimeString('en-GB', {hour:'2-digit', minute:'2-digit'}),
+          customer: (billCustomer || '').trim() || 'Walk-in Customer',
+          items: items,
+          billing: billing,
+          grandTotal: Math.round(totals.grandTotal || 0),
+          totalSqft: parseFloat((totals.totalSqft || 0).toFixed(1)),
+          itemCount: items.length,
+          fingerprint: fp
+        };
+        persistBills([bill, ...savedBills]);
+      };
+      const handleLoadBill = (bill) => {
+        setItems(bill.items || []);
+        setBilling(bill.billing || { discountPct: '', glassRate: '', hardwareRate: '', laborRate: '', additional: '' });
+        setActiveTab('dc');
+        showToast("Bill loaded.", "success");
+      };
+      const handleDeleteBill = (id) => {
+        persistBills(savedBills.filter(b => b.id !== id));
+        showToast("Bill deleted.", "success");
+      };
       const [editSection, setEditSection] = useState('M-23 1.2mm');
 
       const handleCategoryChange = (cat) => setInput({...input, colorCategory: cat, specificColor: catalogColors[cat][0]});
@@ -1391,20 +1447,54 @@
                     </div>
 
                     <div className="flex flex-col gap-3">
-                      <button onClick={shareToWhatsApp} className="w-full bg-[#25D366] hover:bg-[#128C7E] text-white py-4 rounded-xl font-bold flex justify-center items-center gap-2 shadow-lg transition-colors">
+                      <button onClick={() => { autoSaveBill(); shareToWhatsApp(); }} className="w-full bg-[#25D366] hover:bg-[#128C7E] text-white py-4 rounded-xl font-bold flex justify-center items-center gap-2 shadow-lg transition-colors">
                         <IconShare /> Share Quote via WhatsApp
                       </button>
                       <div className="flex gap-3">
-                        <button onClick={() => window.print()} className="flex-[2] bg-slate-800 hover:bg-slate-900 text-white py-4 rounded-xl font-bold flex justify-center items-center gap-2 shadow-lg transition-colors">
+                        <button onClick={() => { autoSaveBill(); window.print(); }} className="flex-[2] bg-slate-800 hover:bg-slate-900 text-white py-4 rounded-xl font-bold flex justify-center items-center gap-2 shadow-lg transition-colors">
                           <IconPDF /> Generate PDF
                         </button>
                         <button onClick={() => {setItems([]); setBilling({discountPct:'', glassRate:'', hardwareRate:'', laborRate:'', additional:''})}} className="flex-1 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-xl font-bold transition-colors py-4">
                           Clear
                         </button>
                       </div>
+                      <div className="flex gap-3 mt-3">
+                        <input value={billCustomer} onChange={e => setBillCustomer(e.target.value)} placeholder="Customer name (optional)" className="flex-[2] bg-white border border-slate-200 rounded-xl px-4 py-4 font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-500 shadow-sm" />
+                        <button onClick={handleSaveBill} className="flex-1 bg-teal-600 hover:bg-teal-700 text-white rounded-xl font-bold transition-colors py-4 flex justify-center items-center gap-2 shadow-lg">
+                          <IconSave /> Save Bill
+                        </button>
+                      </div>
                     </div>
                   </div>
                 )}
+              </div>
+            )}
+
+            {activeTab === 'bills' && (
+              <div className="no-print h-full pb-10">
+                <div className="bg-white p-6 rounded-3xl shadow-xl border border-slate-100 mb-6">
+                  <h2 className="text-xl font-black text-slate-800 mb-1">Saved Bills</h2>
+                  <p className="text-xs text-slate-500 font-medium mb-5">Tap Open to load a bill back into the calculator, or delete it.</p>
+                  {savedBills.length === 0 ? (
+                    <p className="text-center text-slate-400 font-medium py-8">No saved bills yet.<br/>Make a bill and tap "Save Bill".</p>
+                  ) : (
+                    <div className="flex flex-col gap-3">
+                      {savedBills.map((bill) => (
+                        <div key={bill.id} className="border border-slate-200 rounded-2xl p-4 bg-slate-50">
+                          <div className="flex justify-between items-start mb-1">
+                            <h3 className="font-bold text-slate-800 truncate">{bill.customer}</h3>
+                            <span className="text-[11px] text-slate-500 font-medium whitespace-nowrap ml-2">{bill.date} {bill.time}</span>
+                          </div>
+                          <p className="text-xs text-slate-500 font-medium mb-3">{bill.itemCount} items &middot; {bill.totalSqft} Sq.Ft &middot; <span className="text-slate-800 font-bold">Rs {bill.grandTotal}</span></p>
+                          <div className="flex gap-2">
+                            <button onClick={() => handleLoadBill(bill)} className="flex-1 bg-slate-800 hover:bg-slate-900 text-white rounded-xl font-bold py-2.5 text-sm transition-colors">Open</button>
+                            <button onClick={() => handleDeleteBill(bill.id)} className="flex-1 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-xl font-bold py-2.5 text-sm transition-colors">Delete</button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
             )}
 
@@ -1606,6 +1696,7 @@
             <button onClick={() => setActiveTab('dc')} className={`flex flex-col items-center p-2.5 rounded-2xl transition-all w-14 ${activeTab === 'dc' ? 'text-slate-900 bg-slate-100' : 'text-slate-400 hover:text-slate-600'}`}><IconCalc /><span className="text-[10px] font-bold mt-1.5 whitespace-nowrap">DC Calc</span></button>
             <button onClick={() => setActiveTab('dg')} className={`flex flex-col items-center p-2.5 rounded-2xl transition-all w-14 ${activeTab === 'dg' ? 'text-slate-900 bg-slate-100' : 'text-slate-400 hover:text-slate-600'}`}><IconDG /><span className="text-[10px] font-bold mt-1.5 whitespace-nowrap">DG Calc</span></button>
             <button onClick={() => setActiveTab('rateManager')} className={`flex flex-col items-center p-2.5 rounded-2xl transition-all w-14 ${activeTab === 'rateManager' ? 'text-slate-900 bg-slate-100' : 'text-slate-400 hover:text-slate-600'}`}><IconEdit /><span className="text-[10px] font-bold mt-1.5 whitespace-nowrap">Rates</span></button>
+            <button onClick={() => setActiveTab('bills')} className={`flex flex-col items-center p-2.5 rounded-2xl transition-all w-14 ${activeTab === 'bills' ? 'text-slate-900 bg-slate-100' : 'text-slate-400 hover:text-slate-600'}`}><IconSave /><span className="text-[10px] font-bold mt-1.5 whitespace-nowrap">Bills</span></button>
             <button onClick={() => window.print()} className="flex flex-col items-center p-2.5 rounded-2xl text-slate-400 hover:text-slate-900 hover:bg-slate-100 transition-all w-14"><IconPDF /><span className="text-[10px] font-bold mt-1.5 whitespace-nowrap">PDF</span></button>
             <button onClick={() => setActiveTab('settings')} className={`flex flex-col items-center p-2.5 rounded-2xl transition-all w-14 ${activeTab === 'settings' ? 'text-slate-900 bg-slate-100' : 'text-slate-400 hover:text-slate-600'}`}><IconUser /><span className="text-[10px] font-bold mt-1.5 whitespace-nowrap">Profile</span></button>
           </div>
