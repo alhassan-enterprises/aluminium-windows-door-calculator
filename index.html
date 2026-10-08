@@ -194,8 +194,8 @@
       const widthPercent = Math.min((widthFt / maxDim) * 100, 100);
       const heightPercent = Math.min((totalHFt / maxDim) * 100, 100);
       
-      const finalWPercent = mini ? 100 : Math.max(widthPercent, 25);
-      const finalHPercent = mini ? 100 : Math.max(heightPercent, 25);
+      const finalWPercent = Math.max(widthPercent, 12);
+      const finalHPercent = Math.max(heightPercent, 12);
 
       const previewRatio = widthFt / totalHFt;
       let svgW = 400; let svgH = 400 / previewRatio;
@@ -1398,7 +1398,7 @@
                         <button onClick={() => window.print()} className="flex-[2] bg-slate-800 hover:bg-slate-900 text-white py-4 rounded-xl font-bold flex justify-center items-center gap-2 shadow-lg transition-colors">
                           <IconPDF /> Generate PDF
                         </button>
-                        <button onClick={() => {if(window.confirm("Clear all items?")){setItems([]); setBilling({discountPct:'', glassRate:'', hardwareRate:'', laborRate:'', additional:''})}}} className="flex-1 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-xl font-bold transition-colors py-4">
+                        <button onClick={() => {setItems([]); setBilling({discountPct:'', glassRate:'', hardwareRate:'', laborRate:'', additional:''})}} className="flex-1 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-xl font-bold transition-colors py-4">
                           Clear
                         </button>
                       </div>
