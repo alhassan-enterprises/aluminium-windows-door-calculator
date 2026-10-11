@@ -260,7 +260,7 @@
 
       const wrapperClasses = mini 
           ? "w-full h-full flex justify-center items-center bg-transparent overflow-hidden relative" 
-          : "w-full h-72 bg-blueprint rounded-t-3xl border-b-4 border-slate-800 shadow-inner overflow-hidden relative flex justify-center items-center p-4";
+          : "w-full h-80 bg-blueprint rounded-t-3xl border-b-4 border-slate-800 shadow-inner overflow-hidden relative flex justify-center items-center p-4";
 
       const viewBoxStr = mini ? `-10 -10 ${svgW + 20} ${svgH + 20}` : `-60 -50 ${svgW + 120} ${svgH + 110}`;
 
@@ -722,27 +722,92 @@
         return null;
       };
 
-      const convertBill = () => {
-        if (items.length === 0) { showToast("Pehle bill me items add karein.", "error"); return; }
+      // Pure: convert a list of items to target thickness+colour (no state change)
+      const convertItemsFor = (thick, colorCat, itemsList) => {
         let kept = 0;
-        const newItems = items.map((item) => {
+        const out = (itemsList || []).map((item) => {
           const newMats = (item.materials || []).map((m) => {
             const baseSec = (m.section || "").replace(/\s*\([\d.]+mm\)\s*$/, "").trim();
-            const hit = lookupConvRate(baseSec, convThick, convColor);
+            const hit = lookupConvRate(baseSec, thick, colorCat);
             if (!hit) { kept++; return m; }
             const amount = hit.rate * (m.ft || 0);
             return { ...m, section: `${baseSec} (${hit.thickLabel})`, rate: hit.rate, amount };
           });
           const sectionTotal = newMats.reduce((s, m) => s + (m.amount || 0), 0);
-          const newThickLabel = (item.thickness || "").replace(/\d\.\dmm/, convThick);
-          return { ...item, thickness: newThickLabel, colorCategory: convColor,
-            specificColor: (catalogColors[convColor] && catalogColors[convColor][0]) || item.specificColor,
+          const newThickLabel = (item.thickness || "").replace(/\d\.\dmm/, thick);
+          return { ...item, thickness: newThickLabel, colorCategory: colorCat,
+            specificColor: (catalogColors[colorCat] && catalogColors[colorCat][0]) || item.specificColor,
             materials: newMats, sectionTotal };
         });
+        return { items: out, kept };
+      };
+
+      const convertBill = () => {
+        if (items.length === 0) { showToast("Pehle bill me items add karein.", "error"); return; }
+        const { items: newItems, kept } = convertItemsFor(convThick, convColor, items);
         setItems(newItems);
         if (kept === 0) showToast(`Bill ${convThick} / ${convColor} me convert ho gaya.`, "success");
         else showToast(`${kept} sections ka rate nahi mila - unka purana rate rakha gaya.`, "error");
       };
+
+      // ============ 3-THICKNESS PDF ============
+      // Ek tap me 1.2mm, 1.6mm aur 2.0mm - teeno ka bill ek hi PDF me.
+      const aggregateFor = (itemsList) => {
+        const map = {};
+        (itemsList || []).forEach((item) => {
+          (item.materials || []).forEach((m) => {
+            if (!map[m.section]) map[m.section] = { section: m.section, rate: m.rate, ft: 0, amount: 0 };
+            map[m.section].ft += (m.ft || 0);
+            map[m.section].amount += (m.amount || 0);
+          });
+        });
+        return Object.values(map);
+      };
+
+      const calcTotalsFor = (itemsList, billingObj) => {
+        let rawSubtotal = 0, totalQty = 0, totalSqft = 0, totalMaterialFt = 0;
+        (itemsList || []).forEach((item) => {
+          rawSubtotal += (item.sectionTotal || 0);
+          totalQty += (item.q || 0);
+          totalSqft += (item.sqft || 0);
+          (item.materials || []).forEach((m) => { totalMaterialFt += (m.ft || 0); });
+        });
+        const b = billingObj || {};
+        const discountAmount = (rawSubtotal * (parseFloat(b.discountPct) || 0)) / 100;
+        const afterDiscount = rawSubtotal - discountAmount;
+        const glassCost = totalSqft * (parseFloat(b.glassRate) || 0);
+        const hwCost = totalQty * (parseFloat(b.hardwareRate) || 0);
+        const laborCost = totalSqft * (parseFloat(b.laborRate) || 0);
+        const addCost = parseFloat(b.additional) || 0;
+        const grandTotal = afterDiscount + glassCost + hwCost + laborCost + addCost;
+        const sqftRate = totalSqft > 0 ? (grandTotal / totalSqft) : 0;
+        return { rawSubtotal, discountAmount, afterDiscount, totalQty, totalSqft, totalMaterialFt, grandTotal, sqftRate, glassCost, hwCost, laborCost };
+      };
+
+      const [print3T, setPrint3T] = useState(null);
+      useEffect(() => {
+        const h = () => setPrint3T(null);
+        window.addEventListener('afterprint', h);
+        return () => window.removeEventListener('afterprint', h);
+      }, []);
+      useEffect(() => { setPrint3T(null); }, [activeTab]);
+
+      const clearPrint3T = () => setPrint3T(null);
+
+      const print3ThickPDF = () => {
+        if (items.length === 0) { showToast("Pehle bill me items add karein.", "error"); return; }
+        autoSaveBill();
+        const colorCat = (items[0] && items[0].colorCategory) || input.colorCategory || 'Champagne/PC';
+        const sets = ['1.2mm', '1.6mm', '2.0mm'].map((th) => {
+          const c = convertItemsFor(th, colorCat, items);
+          const cItems = c.items;
+          return { thick: th, colorCat, items: cItems, agg: aggregateFor(cItems), totals: calcTotalsFor(cItems, billing), kept: c.kept };
+        });
+        setPrint3T(sets);
+        showToast("3-Thickness bill tayyar - print dialog me PDF save karein.", "success");
+        setTimeout(() => { window.print(); }, 700);
+      };
+      // ============ /3-THICKNESS PDF ============
       // ============ /BILL CONVERTER ============
 
       const [editSection, setEditSection] = useState('M-23 1.2mm');
@@ -1507,6 +1572,13 @@
                         </select>
                       </div>
                       <button onClick={convertBill} className="w-full bg-amber-500 hover:bg-amber-600 text-white py-4 rounded-xl font-bold shadow-lg transition-colors">Convert Bill</button>
+                      <button onClick={print3ThickPDF} className="w-full bg-slate-900 hover:bg-black text-white py-4 rounded-xl font-bold shadow-lg transition-colors mt-3 flex justify-center items-center gap-2"><IconPDF /> 3-Thickness PDF (1.2 / 1.6 / 2.0mm)</button>
+                      {print3T && (
+                        <div className="mt-3 flex items-center justify-between bg-emerald-600 text-white rounded-xl px-4 py-3">
+                          <span className="text-xs font-bold">3-Thickness bill tayyar hai - print dialog me PDF save karein</span>
+                          <button onClick={clearPrint3T} className="text-xs font-bold bg-white/20 hover:bg-white/30 rounded-lg px-3 py-1.5 ml-2 shrink-0">Clear</button>
+                        </div>
+                      )}
                     </div>
                     {/* ============ /BILL CONVERTER ============ */}
 
@@ -1515,7 +1587,7 @@
                         <IconShare /> Share Quote via WhatsApp
                       </button>
                       <div className="flex gap-3">
-                        <button onClick={() => { autoSaveBill(); window.print(); }} className="flex-[2] bg-slate-800 hover:bg-slate-900 text-white py-4 rounded-xl font-bold flex justify-center items-center gap-2 shadow-lg transition-colors">
+                        <button onClick={() => { clearPrint3T(); autoSaveBill(); setTimeout(() => window.print(), 150); }} className="flex-[2] bg-slate-800 hover:bg-slate-900 text-white py-4 rounded-xl font-bold flex justify-center items-center gap-2 shadow-lg transition-colors">
                           <IconPDF /> Generate PDF
                         </button>
                         <button onClick={() => {setItems([]); setBilling({discountPct:'', glassRate:'', hardwareRate:'', laborRate:'', additional:''})}} className="flex-1 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-xl font-bold transition-colors py-4">
@@ -1646,7 +1718,7 @@
               </div>
             )}
 
-            <div className="print-only max-w-[210mm] mx-auto min-h-screen bg-white text-slate-900 pb-10">
+            {!print3T && (<div className="print-only max-w-[210mm] mx-auto min-h-screen bg-white text-slate-900 pb-10">
               
               <div className="bg-slate-900 text-white p-8 rounded-2xl shadow-sm mb-6 flex justify-between items-center print:bg-slate-800">
                 <div>
@@ -1752,7 +1824,57 @@
               </div>
 
               <div className="mt-20 pt-6 text-center text-sm font-bold text-slate-400 border-t border-slate-200">Generated via Aluminium Windows and Door Calculator <br/><span className="font-normal text-xs mt-1 block">Thank you for your business!</span></div>
+            </div>)}
+
+            {print3T && (
+            <div className="print-only max-w-[210mm] mx-auto bg-white text-slate-900 pb-10">
+              {print3T.map((set, si) => (
+              <div key={si} style={si > 0 ? { pageBreakBefore: 'always', breakBefore: 'page' } : {}}>
+                <div className="bg-slate-900 text-white p-6 rounded-2xl mb-5 flex justify-between items-center avoid-break">
+                  <div>
+                    <h1 className="text-2xl font-black uppercase tracking-widest">{profile.shopName || 'ALUMINIUM SHOP'}</h1>
+                    <p className="text-slate-300 text-base mt-1 font-medium">Quotation - {set.thick} - {set.colorCat}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-xs text-slate-400 uppercase tracking-wider">Date</p>
+                    <p className="font-bold">{new Date().toLocaleDateString('en-GB')}</p>
+                  </div>
+                </div>
+                <div className="rounded-xl overflow-hidden border border-slate-200 mb-5 avoid-break">
+                  <table className="w-full text-sm">
+                    <thead className="bg-slate-100">
+                      <tr className="text-slate-800 border-b border-slate-200">
+                        <th className="p-3 text-left font-bold">Section Profile</th>
+                        <th className="p-3 text-center font-bold">Rate</th>
+                        <th className="p-3 text-center font-bold">Ft</th>
+                        <th className="p-3 text-right font-bold">Amount</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-200">
+                      {set.agg.map((m, idx) => (
+                        <tr key={idx} className="bg-white even:bg-slate-50">
+                          <td className="p-3 font-bold text-slate-800">{m.section}</td>
+                          <td className="p-3 text-center text-slate-600">Rs {m.rate.toFixed(1)}</td>
+                          <td className="p-3 text-center font-bold text-slate-800">{m.ft.toFixed(1)}</td>
+                          <td className="p-3 text-right font-black text-slate-900">Rs {m.amount.toFixed(0)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="bg-slate-900 rounded-2xl p-5 text-slate-300 mb-8 avoid-break">
+                  <div className="flex justify-between items-center mb-1 text-sm"><span>Material Subtotal</span><span className="text-white font-bold">Rs {set.totals.rawSubtotal.toFixed(0)}</span></div>
+                  {billing.discountPct > 0 && (<div className="flex justify-between items-center mb-1 text-sm"><span>Discount ({billing.discountPct}%)</span><span className="text-red-400 font-bold">- Rs {set.totals.discountAmount.toFixed(0)}</span></div>)}
+                  {set.totals.glassCost > 0 && (<div className="flex justify-between items-center mb-1 text-sm"><span>Glass / Sheet</span><span className="text-white font-bold">Rs {set.totals.glassCost.toFixed(0)}</span></div>)}
+                  {set.totals.hwCost > 0 && (<div className="flex justify-between items-center mb-1 text-sm"><span>Hardware</span><span className="text-white font-bold">Rs {set.totals.hwCost.toFixed(0)}</span></div>)}
+                  {set.totals.laborCost > 0 && (<div className="flex justify-between items-center mb-1 text-sm"><span>Labor</span><span className="text-white font-bold">Rs {set.totals.laborCost.toFixed(0)}</span></div>)}
+                  <div className="flex justify-between items-center pt-3 border-t border-slate-700 mt-2"><span className="text-lg font-bold text-white">Grand Total ({set.thick})</span><span className="text-2xl font-black text-white">Rs {set.totals.grandTotal.toFixed(0)}</span></div>
+                </div>
+              </div>
+              ))}
+              <div className="mt-10 pt-6 text-center text-sm font-bold text-slate-400 border-t border-slate-200">Generated via Aluminium Windows and Door Calculator <br/><span className="font-normal text-xs mt-1 block">Thank you for your business!</span></div>
             </div>
+            )}
 
           </div>
 
@@ -1761,7 +1883,7 @@
             <button onClick={() => setActiveTab('dg')} className={`flex flex-col items-center p-2.5 rounded-2xl transition-all w-14 ${activeTab === 'dg' ? 'text-slate-900 bg-slate-100' : 'text-slate-400 hover:text-slate-600'}`}><IconDG /><span className="text-[10px] font-bold mt-1.5 whitespace-nowrap">DG Calc</span></button>
             <button onClick={() => setActiveTab('rateManager')} className={`flex flex-col items-center p-2.5 rounded-2xl transition-all w-14 ${activeTab === 'rateManager' ? 'text-slate-900 bg-slate-100' : 'text-slate-400 hover:text-slate-600'}`}><IconEdit /><span className="text-[10px] font-bold mt-1.5 whitespace-nowrap">Rates</span></button>
             <button onClick={() => setActiveTab('bills')} className={`flex flex-col items-center p-2.5 rounded-2xl transition-all w-14 ${activeTab === 'bills' ? 'text-slate-900 bg-slate-100' : 'text-slate-400 hover:text-slate-600'}`}><IconSave /><span className="text-[10px] font-bold mt-1.5 whitespace-nowrap">Bills</span></button>
-            <button onClick={() => window.print()} className="flex flex-col items-center p-2.5 rounded-2xl text-slate-400 hover:text-slate-900 hover:bg-slate-100 transition-all w-14"><IconPDF /><span className="text-[10px] font-bold mt-1.5 whitespace-nowrap">PDF</span></button>
+            <button onClick={() => { clearPrint3T(); setTimeout(() => window.print(), 150); }} className="flex flex-col items-center p-2.5 rounded-2xl text-slate-400 hover:text-slate-900 hover:bg-slate-100 transition-all w-14"><IconPDF /><span className="text-[10px] font-bold mt-1.5 whitespace-nowrap">PDF</span></button>
             <button onClick={() => setActiveTab('settings')} className={`flex flex-col items-center p-2.5 rounded-2xl transition-all w-14 ${activeTab === 'settings' ? 'text-slate-900 bg-slate-100' : 'text-slate-400 hover:text-slate-600'}`}><IconUser /><span className="text-[10px] font-bold mt-1.5 whitespace-nowrap">Profile</span></button>
           </div>
         </div>
