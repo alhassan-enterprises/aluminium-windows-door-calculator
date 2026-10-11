@@ -13,6 +13,8 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.10/babel.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 
   <style>
     body { font-family: 'Inter', sans-serif; background-color: #f1f5f9; -webkit-tap-highlight-color: transparent; }
@@ -810,6 +812,75 @@
       // ============ /3-THICKNESS PDF ============
       // ============ /BILL CONVERTER ============
 
+      // ============ DOWNLOAD PDF (jsPDF - direct download) ============
+      const downloadBillPDF = () => {
+        if (items.length === 0) { showToast("Pehle bill me items add karein.", "error"); return; }
+        if (!window.jspdf || !window.jspdf.jsPDF || !window.jspdf.jsPDF.API.autoTable) {
+          showToast("PDF library load nahi hui - internet check karein.", "error"); return;
+        }
+        autoSaveBill();
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+        const t = calcTotalsFor(items, billing);
+        const agg = aggregateFor(items);
+        const customer = (billCustomer || '').trim() || 'Walk-in Customer';
+        const dateStr = new Date().toLocaleDateString('en-GB');
+        let y = 14;
+        doc.setFont('helvetica', 'bold'); doc.setFontSize(16);
+        doc.text('Window & Door Bill', 105, y, { align: 'center' }); y += 7;
+        doc.setFontSize(10); doc.setFont('helvetica', 'normal');
+        doc.text('Customer: ' + customer, 14, y);
+        doc.text('Date: ' + dateStr, 196, y, { align: 'right' }); y += 8;
+
+        doc.autoTable({
+          startY: y,
+          head: [['#', 'Item', 'Size', 'Qty', 'Sq.Ft', 'Amount (Rs)']],
+          body: items.map((it, i) => [
+            i + 1,
+            ((it.category || '') + ' ' + (it.type || '')).trim(),
+            (it.w || '') + 'x' + (it.h || ''),
+            it.q || '',
+            parseFloat(it.sqft || 0).toFixed(1),
+            Math.round(it.sectionTotal || 0).toLocaleString('en-PK')
+          ]),
+          styles: { fontSize: 9 }, headStyles: { fillColor: [11, 27, 51] },
+        });
+        y = doc.lastAutoTable.finalY + 8;
+
+        doc.setFont('helvetica', 'bold'); doc.setFontSize(12);
+        doc.text('Materials', 14, y); y += 2;
+        doc.autoTable({
+          startY: y,
+          head: [['Section', 'Rate (Rs/ft)', 'Ft', 'Amount (Rs)']],
+          body: agg.map((m) => [m.section, m.rate, parseFloat(m.ft || 0).toFixed(1), Math.round(m.amount || 0).toLocaleString('en-PK')]),
+          styles: { fontSize: 9 }, headStyles: { fillColor: [11, 27, 51] },
+        });
+        y = doc.lastAutoTable.finalY + 8;
+
+        const rs = (n) => Math.round(n || 0).toLocaleString('en-PK');
+        const rows = [['Subtotal', rs(t.rawSubtotal)]];
+        if (t.discountAmount > 0) rows.push(['Discount (' + (billing.discountPct || 0) + '%)', '-' + rs(t.discountAmount)]);
+        if (t.glassCost > 0) rows.push(['Glass', rs(t.glassCost)]);
+        if (t.hwCost > 0) rows.push(['Hardware', rs(t.hwCost)]);
+        if (t.laborCost > 0) rows.push(['Labor', rs(t.laborCost)]);
+        if ((parseFloat(billing.additional) || 0) > 0) rows.push(['Additional', rs(billing.additional)]);
+        rows.push(['GRAND TOTAL', 'Rs ' + rs(t.grandTotal)]);
+        doc.autoTable({
+          startY: y, body: rows, theme: 'plain',
+          styles: { fontSize: 10 },
+          columnStyles: { 0: { fontStyle: 'bold' }, 1: { halign: 'right', fontStyle: 'bold' } },
+        });
+
+        const blob = doc.output('blob');
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = 'WindowDoorBill_' + Date.now() + '.pdf';
+        document.body.appendChild(a); a.click();
+        setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 3000);
+        showToast("PDF download ho rahi hai.", "success");
+      };
+      // ============ /DOWNLOAD PDF ============
+
       const [editSection, setEditSection] = useState('M-23 1.2mm');
 
       const handleCategoryChange = (cat) => setInput({...input, colorCategory: cat, specificColor: catalogColors[cat][0]});
@@ -1587,10 +1658,13 @@
                         <IconShare /> Share Quote via WhatsApp
                       </button>
                       <div className="flex gap-3">
-                        <button onClick={() => { clearPrint3T(); autoSaveBill(); setTimeout(() => window.print(), 150); }} className="flex-[2] bg-slate-800 hover:bg-slate-900 text-white py-4 rounded-xl font-bold flex justify-center items-center gap-2 shadow-lg transition-colors">
+                        <button onClick={() => { clearPrint3T(); autoSaveBill(); setTimeout(() => window.print(), 150); }} className="flex-1 bg-slate-800 hover:bg-slate-900 text-white py-4 rounded-xl font-bold flex justify-center items-center gap-2 shadow-lg transition-colors">
                           <IconPDF /> Generate PDF
                         </button>
-                        <button onClick={() => {setItems([]); setBilling({discountPct:'', glassRate:'', hardwareRate:'', laborRate:'', additional:''})}} className="flex-1 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-xl font-bold transition-colors py-4">
+                        <button onClick={downloadBillPDF} className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white py-4 rounded-xl font-bold flex justify-center items-center gap-2 shadow-lg transition-colors">
+                          <IconPDF /> Download PDF
+                        </button>
+                        <button onClick={() => {setItems([]); setBilling({discountPct:'', glassRate:'', hardwareRate:'', laborRate:'', additional:''})}} className="w-20 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-xl font-bold transition-colors py-4">
                           Clear
                         </button>
                       </div>
