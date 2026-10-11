@@ -196,8 +196,8 @@
       const widthPercent = Math.min((widthFt / maxDim) * 100, 100);
       const heightPercent = Math.min((totalHFt / maxDim) * 100, 100);
       
-      const finalWPercent = Math.max(widthPercent, 12);
-      const finalHPercent = Math.max(heightPercent, 12);
+      const finalWPercent = Math.min(Math.max(widthPercent, 12) * 1.5, 100);
+      const finalHPercent = Math.min(Math.max(heightPercent, 12) * 1.5, 100);
 
       const previewRatio = widthFt / totalHFt;
       let svgW = 400; let svgH = 400 / previewRatio;
@@ -267,7 +267,7 @@
       const viewBoxStr = mini ? `-10 -10 ${svgW + 20} ${svgH + 20}` : `-60 -50 ${svgW + 120} ${svgH + 110}`;
 
       return (
-        <div className={wrapperClasses}>
+        <div className={wrapperClasses} id={mini ? undefined : 'mainDrawingBox'}>
           <div style={{ width: `${finalWPercent}%`, height: `${finalHPercent}%`, maxWidth: '100%', maxHeight: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
             <svg width="100%" height="100%" viewBox={viewBoxStr} preserveAspectRatio="xMidYMid meet" style={{ filter: mini ? 'drop-shadow(0px 2px 4px rgba(0,0,0,0.15))' : 'drop-shadow(0px 15px 25px rgba(0,0,0,0.5))'}}>
               <defs>
@@ -812,13 +812,22 @@
       // ============ /3-THICKNESS PDF ============
       // ============ /BILL CONVERTER ============
 
-      // ============ DOWNLOAD PDF (jsPDF - direct download) ============
-      const downloadBillPDF = () => {
-        if (items.length === 0) { showToast("Pehle bill me items add karein.", "error"); return; }
-        if (!window.jspdf || !window.jspdf.jsPDF || !window.jspdf.jsPDF.API.autoTable) {
-          showToast("PDF library load nahi hui - internet check karein.", "error"); return;
-        }
-        autoSaveBill();
+      // ============ PDF: build / download / share / drawing image ============
+      const pdfLibOK = () => (window.jspdf && window.jspdf.jsPDF && window.jspdf.jsPDF.API.autoTable);
+      const blobToDataURL = (blob) => new Promise((res, rej) => {
+        const fr = new FileReader();
+        fr.onloadend = () => res(fr.result); fr.onerror = rej; fr.readAsDataURL(blob);
+      });
+      const topAndroid = (name) => {
+        try {
+          if (window.top && window.top !== window && window.top[name]) return window.top[name];
+          if (window[name]) return window[name];
+        } catch(e){}
+        return null;
+      };
+
+      // Pure: jsPDF bill document banata hai (download + share dono use karte hain)
+      const buildBillDoc = () => {
         const { jsPDF } = window.jspdf;
         const doc = new jsPDF({ unit: 'mm', format: 'a4' });
         const t = calcTotalsFor(items, billing);
@@ -831,7 +840,6 @@
         doc.setFontSize(10); doc.setFont('helvetica', 'normal');
         doc.text('Customer: ' + customer, 14, y);
         doc.text('Date: ' + dateStr, 196, y, { align: 'right' }); y += 8;
-
         doc.autoTable({
           startY: y,
           head: [['#', 'Item', 'Size', 'Qty', 'Sq.Ft', 'Amount (Rs)']],
@@ -846,7 +854,6 @@
           styles: { fontSize: 9 }, headStyles: { fillColor: [11, 27, 51] },
         });
         y = doc.lastAutoTable.finalY + 8;
-
         doc.setFont('helvetica', 'bold'); doc.setFontSize(12);
         doc.text('Materials', 14, y); y += 2;
         doc.autoTable({
@@ -856,7 +863,6 @@
           styles: { fontSize: 9 }, headStyles: { fillColor: [11, 27, 51] },
         });
         y = doc.lastAutoTable.finalY + 8;
-
         const rs = (n) => Math.round(n || 0).toLocaleString('en-PK');
         const rows = [['Subtotal', rs(t.rawSubtotal)]];
         if (t.discountAmount > 0) rows.push(['Discount (' + (billing.discountPct || 0) + '%)', '-' + rs(t.discountAmount)]);
@@ -870,16 +876,104 @@
           styles: { fontSize: 10 },
           columnStyles: { 0: { fontStyle: 'bold' }, 1: { halign: 'right', fontStyle: 'bold' } },
         });
-
-        const blob = doc.output('blob');
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url; a.download = 'WindowDoorBill_' + Date.now() + '.pdf';
-        document.body.appendChild(a); a.click();
-        setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 3000);
-        showToast("PDF download ho rahi hai.", "success");
+        return { blob: doc.output('blob'), fileName: 'WindowDoorBill_' + Date.now() + '.pdf' };
       };
-      // ============ /DOWNLOAD PDF ============
+
+      const downloadBillPDF = () => {
+        if (items.length === 0) { showToast("Pehle bill me items add karein.", "error"); return; }
+        if (!pdfLibOK()) { showToast("PDF library load nahi hui - internet check karein.", "error"); return; }
+        autoSaveBill();
+        const { blob, fileName } = buildBillDoc();
+        blobToDataURL(blob).then((dataUrl) => {
+          const br = topAndroid('AndroidSave');
+          if (br && br.saveBlob) { br.saveBlob(dataUrl, 'application/pdf', fileName); showToast("PDF Downloads me save ho gaya.", "success"); return; }
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url; a.download = fileName;
+          document.body.appendChild(a); a.click();
+          setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 3000);
+          showToast("PDF download ho rahi hai.", "success");
+        });
+      };
+
+      const shareBillPDF = () => {
+        if (items.length === 0) { showToast("Pehle bill me items add karein.", "error"); return; }
+        if (!pdfLibOK()) { showToast("PDF library load nahi hui - internet check karein.", "error"); return; }
+        autoSaveBill();
+        const { blob, fileName } = buildBillDoc();
+        blobToDataURL(blob).then((dataUrl) => {
+          const sh = topAndroid('AndroidShare');
+          if (sh && sh.shareFile) { sh.shareFile(dataUrl, fileName, 'application/pdf'); return; }
+          if (navigator.share && navigator.canShare) {
+            const file = new File([blob], fileName, { type: 'application/pdf' });
+            if (navigator.canShare({ files: [file] })) {
+              navigator.share({ files: [file], title: 'Window & Door Bill' }).catch(() => {});
+              return;
+            }
+          }
+          showToast("Share support nahi mila - Download PDF use karein.", "error");
+        });
+      };
+
+      // Drawing (visualizer SVG) -> PNG image
+      const getMainDrawingSVG = () => {
+        const box = document.getElementById('mainDrawingBox');
+        return box ? box.querySelector('svg') : null;
+      };
+      const drawingToPngDataURL = (scale) => new Promise((res, rej) => {
+        const svg = getMainDrawingSVG();
+        if (!svg) { rej(new Error('no-svg')); return; }
+        const clone = svg.cloneNode(true);
+        const r = svg.getBoundingClientRect();
+        const w = Math.max(400, Math.round(r.width) || 800), h = Math.max(400, Math.round(r.height) || 800);
+        clone.setAttribute('width', w); clone.setAttribute('height', h);
+        clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+        const xml = new XMLSerializer().serializeToString(clone);
+        const url = URL.createObjectURL(new Blob([xml], { type: 'image/svg+xml;charset=utf-8' }));
+        const img = new Image();
+        img.onload = () => {
+          try {
+            const c = document.createElement('canvas');
+            c.width = w * (scale || 2); c.height = h * (scale || 2);
+            const ctx = c.getContext('2d');
+            ctx.fillStyle = '#0f172a'; ctx.fillRect(0, 0, c.width, c.height);
+            ctx.drawImage(img, 0, 0, c.width, c.height);
+            URL.revokeObjectURL(url);
+            res(c.toDataURL('image/png'));
+          } catch(e){ rej(e); }
+        };
+        img.onerror = (e) => { URL.revokeObjectURL(url); rej(e); };
+        img.src = url;
+      });
+      const saveDrawingImage = () => {
+        drawingToPngDataURL(2).then((dataUrl) => {
+          const name = 'Drawing_' + Date.now() + '.png';
+          const br = topAndroid('AndroidSave');
+          if (br && br.saveFile) { br.saveFile(dataUrl, name); showToast("Drawing Downloads me save ho gaya.", "success"); return; }
+          const a = document.createElement('a');
+          a.href = dataUrl; a.download = name;
+          document.body.appendChild(a); a.click(); a.remove();
+          showToast("Drawing download ho rahi hai.", "success");
+        }).catch(() => showToast("Drawing nahi mili.", "error"));
+      };
+      const shareDrawingImage = () => {
+        drawingToPngDataURL(2).then((dataUrl) => {
+          const name = 'Drawing_' + Date.now() + '.png';
+          const sh = topAndroid('AndroidShare');
+          if (sh && sh.shareFile) { sh.shareFile(dataUrl, name, 'image/png'); return; }
+          fetch(dataUrl).then((r) => r.blob()).then((b) => {
+            if (navigator.share && navigator.canShare) {
+              const file = new File([b], name, { type: 'image/png' });
+              if (navigator.canShare({ files: [file] })) {
+                navigator.share({ files: [file], title: 'Window Drawing' }).catch(() => {});
+                return;
+              }
+            }
+            showToast("Share support nahi mila.", "error");
+          });
+        }).catch(() => showToast("Drawing nahi mili.", "error"));
+      };
+      // ============ /PDF: build / download / share / drawing image ============
 
       const [editSection, setEditSection] = useState('M-23 1.2mm');
 
@@ -1666,6 +1760,17 @@
                         </button>
                         <button onClick={() => {setItems([]); setBilling({discountPct:'', glassRate:'', hardwareRate:'', laborRate:'', additional:''})}} className="w-20 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-xl font-bold transition-colors py-4">
                           Clear
+                        </button>
+                      </div>
+                      <div className="flex gap-3 mt-3">
+                        <button onClick={shareBillPDF} className="flex-1 bg-[#25D366] hover:bg-[#128C7E] text-white py-4 rounded-xl font-bold flex justify-center items-center gap-2 shadow-lg transition-colors">
+                          <IconShare /> Share PDF
+                        </button>
+                        <button onClick={saveDrawingImage} className="flex-1 bg-violet-600 hover:bg-violet-700 text-white py-4 rounded-xl font-bold flex justify-center items-center gap-2 shadow-lg transition-colors">
+                          Drawing Image
+                        </button>
+                        <button onClick={shareDrawingImage} className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white py-4 rounded-xl font-bold flex justify-center items-center gap-2 shadow-lg transition-colors">
+                          <IconShare /> Share Drawing
                         </button>
                       </div>
                       <div className="flex gap-3 mt-3">
